@@ -1,0 +1,191 @@
+---
+title: 'Naive Bayes classification: spam/ham'
+author: "Zijian Du"
+date: "January 23, 2018"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## R Markdown
+## this project use Naive Bayes to implement spam classifier and evaluate the influence of random splitting of train/test split, as well as the influence of value of laplace on final test accuracy.
+```{r}
+# read in data
+smsRaw = read.csv("sms_spam.csv", stringsAsFactors = FALSE)
+
+# convert spam/ham to factor.
+smsRaw$type=factor(smsRaw$type)
+
+# look at y=type
+print(table(smsRaw$type))
+```
+# import wordcloud
+```{r}
+library(wordcloud)
+#install.packages("tm")
+```
+## load the wordcloud package and display wordfrequency
+```{r}
+wordcloud(smsRaw$text, max.words = 40)
+```
+
+```{r}
+# build a corpus using the text mining (tm) package
+library(tm)
+library(SnowballC)
+#volatile (in memory corpus from vector of text in R
+smsC = VCorpus(VectorSource(smsRaw$text))
+# clean up the corpus using tm_map()
+smsCC = tm_map(smsC, content_transformer(tolower)) #upper -> lower
+smsCC = tm_map(smsCC, removeNumbers) # remove numbers
+smsCC = tm_map(smsCC, removeWords, stopwords()) # remove stop words
+smsCC = tm_map(smsCC, removePunctuation) # remove punctuation
+smsCC = tm_map(smsCC, stemDocument) #stemming
+smsCC = tm_map(smsCC, stripWhitespace) # eliminate unneeded whitespace
+
+```
+## get document term matrix
+```{r}
+# create document term matrix
+smsDtm <- DocumentTermMatrix(smsC, control = list(
+tolower = TRUE,
+removeNumbers = TRUE,
+stopwords = TRUE,
+removePunctuation = TRUE,
+stemming = TRUE
+))
+dim(smsDtm)
+```
+Out of sample misclassification
+
+```{r}
+# creating training and test datasets
+smsTrain = smsDtm[1:4169, ]
+smsTest = smsDtm[4170:5559, ]
+smsTrainy = smsRaw[1:4169, ]$type
+smsTesty = smsRaw[4170:5559, ]$type
+cat("training fraction is: ",4169/5559,"\n")
+```
+frequency words and convert counts to binary value
+```{r}
+smsFreqWords = findFreqTerms(smsTrain, 5) 
+#words that appear at leat 5 times
+smsFreqTrain = smsTrain[ , smsFreqWords]
+smsFreqTest = smsTest[ , smsFreqWords]
+convertCounts <- function(x) {
+x <- ifelse(x > 0, "Yes", "No")
+}
+# apply() convert_counts() to columns of train/test data
+smsTrain = apply(smsFreqTrain, MARGIN = 2, convertCounts)
+smsTest = apply(smsFreqTest, MARGIN = 2, convertCounts)
+
+library(e1071)
+smsNB = naiveBayes(smsTrain, smsTrainy, laplace=1)
+yhat = predict(smsNB,smsTest)
+ctab = table(yhat,smsTesty)
+ctab
+misclass = (sum(ctab)-sum(diag(ctab)))/sum(ctab)
+perspam = ctab[2,2]/sum(ctab[,2])
+cat("misclass,perspam: ", misclass,perspam,"\n")
+```
+Now we iterate through random train test split and change the laplace value and report confusion matrixs and misclassification rate for each combination
+```{r}
+# sample train/test
+trainfrac=.75
+n=length(smsRaw$type)
+nTrain = floor(trainfrac*n)
+result_missclassification <-matrix(, nrow=10,ncol=10)
+result_perspam <-matrix(, nrow=10,ncol=10)
+for(traintest in 1:10)
+{
+  for (laplace in 1:10)
+{
+set.seed(traintest)
+ii = sample(1:n,nTrain)
+smsTrain = smsDtm[ii, ]
+smsTest = smsDtm[-ii, ]
+smsTrainy = smsRaw[ii, ]$type
+smsTesty = smsRaw[-ii, ]$type
+# freq words
+smsFreqWords = findFreqTerms(smsTrain, 5) #words that appear at leat 5 times
+smsFreqTrain = smsTrain[ , smsFreqWords]
+smsFreqTest = smsTest[ , smsFreqWords]
+# counts -> binary
+smsTrain = apply(smsFreqTrain, MARGIN = 2, convertCounts)
+smsTest = apply(smsFreqTest, MARGIN = 2, convertCounts)
+smsNB = naiveBayes(smsTrain, smsTrainy, laplace)
+#pred and misclass
+yhat = predict(smsNB,smsTest)
+ctab = table(yhat,smsTesty)
+cat("Confusion matrix and mis-classification for ", traintest," th split and laplace = ",laplace,"\n")
+print(ctab)
+missclass = (sum(ctab)-sum(diag(ctab)))/sum(ctab)
+perspam = ctab[2,2]/sum(ctab[,2])
+result_missclassification[traintest, laplace] = missclass
+result_perspam[traintest, laplace] = perspam
+cat("misclass,perspam: ", missclass,perspam,"\n")
+}
+}
+```
+
+dataframe showing total missclassfication rate for combination of laplace and different splits
+```{r}
+print("total misclassification result for laplace-split combination")
+result_missclassification<-data.frame(result_missclassification)
+rownames(result_missclassification)<-c("split 1","split 2","split 3","split 4","split 5","split 6","split 7","split 8","split 9", "split10")
+colnames(result_missclassification)<-c("laplace 1","laplace 2","laplace 3","laplace 4","laplace 5","laplace 6","laplace 7","laplace 8","laplace 9", "laplace 10")
+print(result_missclassification)
+```
+plot and visulize the missclassification
+```{r}
+print("total perspam accuracy result for laplace-split combination")
+result_perspam<-data.frame(result_perspam)
+rownames(result_perspam)<-c("split 1","split 2","split 3","split 4","split 5","split 6","split 7","split 8","split 9", "split10")
+colnames(result_perspam)<-c("laplace 1","laplace 2","laplace 3","laplace 4","laplace 5","laplace 6","laplace 7","laplace 8","laplace 9", "laplace 10")
+print(result_perspam)
+```
+
+```{r}
+library(igraph)
+library(randomcoloR)
+randomColor(count = 1, hue = c(" ", "random", "red", "orange", "yellow",
+"green", "blue", "purple", "pink", "monochrome"), luminosity = c(" ",
+"random", "light", "bright", "dark"))
+x_laplace = c(1:10)
+plot(x_laplace, result_missclassification[1,], xlab="Laplace",ylab="misclassification rate", type="o", col="blue", pch="o", lty=1, ylim=c(0,0.1))
+legend("topleft", "miss classification for 10 splits")
+for (i in 2:10){
+  points(x_laplace,result_missclassification[i,],col="black")
+  lines(x_laplace, result_missclassification[i,], col=randomColor())
+}
+```
+plot and visualize the perspam missclassification rate
+```{r}
+randomColor(count = 1, hue = c(" ", "random", "red", "orange", "yellow",
+"green", "blue", "purple", "pink", "monochrome"), luminosity = c(" ",
+"random", "light", "bright", "dark"))
+x_laplace = c(1:10)
+plot(x_laplace, result_perspam[1,], xlab="Laplace",ylab="perspam misclassification rate", type="o", col="blue", pch="o", lty=1, ylim=c(0,1))
+legend("bottomleft", "perspam accuracy for 10 splits")
+for (i in 2:10)
+{
+  points(x_laplace,result_perspam[i,],col="black")
+  lines(x_laplace, result_perspam[i,], col=randomColor())
+}
+```
+Observations
+1. final classification results do fluctuate with different train/test split, which can cause around 0.02 deviation for total missclassification
+and around 0.1 deviation for perspam misclassification
+2. with increase of laplace, total missclassification rate increases
+3. with increase of laplace, perspam predicting accuracy decreases
+Hence when doing laplace smoothing, we should use a small laplace value to filter out the zero conditional probability for unseen data
+while increasing the smoothing will make the classifier perform worse.
+
+
+
+
+
