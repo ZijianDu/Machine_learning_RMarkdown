@@ -1,0 +1,211 @@
+---
+title: "Multiple Regression"
+author: "Zijian Du"
+date: "February 17, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+yx= read.csv("sim-reg-data.csv")
+print(summary(yx))
+```
+# firstly do a multiple regression using all x variables
+```{r pressure, echo=FALSE}
+lmf =lm(y~., yx)
+print(summary(lmf))
+```
+# compare out of sample error using x1, x2 and just x3
+```{r}
+# number of rows (samples)
+n = nrow(yx)
+nd =100
+set.seed(99)
+# define function to calculate RMSE
+rmse =function(y, yhat){sqrt(mean((y-yhat)^2))}
+n_train = floor(0.75*n)
+# we want to do nd times and stores the rmse into the matrix
+resM=matrix(0.0, nd, 2)
+for(i in 1:nd)
+{
+  # sample n samples, create permutation and get n_train of them
+  ii =sample(1:n, n_train)
+  dftrain =yx[ii,]
+  dftest=yx[-ii,]
+  # use model to do regression and stroe result into the matrix
+  lm12 = lm(y~x1+x2,dftrain)
+  resM[i,1]= rmse(dftest$y, predict(lm12, dftest))
+  lm3 = lm(y~x3, dftrain)
+  resM[i,2]=rmse(dftest$y, predict(lm3, dftest))
+}
+print(resM)
+
+
+```
+# boxplot for the resM
+```{r}
+colnames(resM)=c("x12","x3")
+boxplot(resM)
+```
+# it can be observed that using x3 for regression is indeed better compared with using x1 and x2.
+
+# now try each regression variable x1,2,3,4,5 and compare with x12
+```{r}
+n =nrow(yx)
+nd =100
+set.seed(98)
+resM =matrix(0.0, nd, 6)
+for(i in 1:nd)
+{
+  ii = sample(1:n, n_train)
+  dftrain=yx[ii,]
+  dftest =yx[-ii,]
+  lm1=lm(y~x1, dftrain)
+  lm2=lm(y~x2, dftrain)
+  lm3=lm(y~x3, dftrain)
+  lm4=lm(y~x4, dftrain)
+  lm5=lm(y~x5, dftrain)
+  lm6=lm(y~x1+x2, dftrain)
+  # calculate RMSE
+  resM[i,1]= rmse(dftest$y, predict(lm1, dftest))
+  resM[i,2]=rmse(dftest$y, predict(lm2, dftest))
+  resM[i,3] =rmse(dftest$y, predict(lm3, dftest))
+  resM[i,4]=rmse(dftest$y, predict(lm4, dftest))
+  resM[i,5]=rmse(dftest$y, predict(lm5,dftest))
+  resM[i,6]=rmse(dftest$y, predict(lm6, dftest))
+}
+colnames(resM)=c("x1","x2","x3","x4","x5","x12")
+boxplot(resM, range=1.5, notch=TRUE, plot = TRUE, xlab="variables", ylab="RMSE")
+```
+# using any of x3, x4, x5 to do regression will have lower out of sample prediction RMSE. Using just x1, x2 or combination of x1 and x2 have similar out of sample RMSE and much higher compared to x3, x4, x5
+
+
+# compare the analytical solution using least square as loss function with the result given by linear model in R
+```{r}
+x=yx[,-1]
+y=yx$y
+# convert the dataframe to numerical matrix first
+y=data.matrix(y)
+x= data.matrix(x)
+xtx=t(x)%*%x
+# compute the analytical value of beta hat
+bhat = solve(xtx)%*%t(x)%*%y
+print(bhat)
+```
+```{r}
+lmf = lm(y~., data.frame(x,y))
+lmf$coefficients
+```
+# the number calculated from analytical solution and lm model doesnt match exactly
+# now first order condition
+```{r}
+t(x)%*%(y-x%*%matrix(bhat, ncol=1))
+```
+# first order condition satisfies
+
+# now get the sigma and standard errors for linear regression fits
+
+```{r}
+print(summary(lm1)$sigma)
+print(summary(lm2)$sigma)
+print(summary(lm3)$sigma)
+print(summary(lm4)$sigma)
+print(summary(lm5)$sigma)
+print(summary(lm6)$sigma)
+```
+# get the value of standard error
+```{r}
+x=yx[,-1]
+y=yx$y
+# convert the dataframe to numerical matrix first
+y=data.matrix(y)
+x= data.matrix(x)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm1)$sigma)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm2)$sigma)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm3)$sigma)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm4)$sigma)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm5)$sigma)
+print(sqrt(diag(solve(t(x)%*%x)))*summary(lm6)$sigma)
+```
+```{r}
+summary(lm1)
+summary(lm2)
+summary(lm3)
+summary(lm4)
+summary(lm5)
+summary(lm6)
+```
+# correlation
+# after demeaning the data, the intercept term is interpreted as the expected value of Y when the predictors are set to their mean, otherwise the intercept is interpreted as the expected value of Y when the data are set to 0, which is not realistic.
+```{r}
+xyd = read.csv("sim-reg-data.csv")
+lmd = lm(y~.,xyd)
+summary(lmd)
+```
+# now demeaned data
+```{r}
+xydd = xyd
+for (i in 2:6)
+{
+  xydd[[i]] = xydd[[i]]-mean(xydd[[i]])
+}
+lmdd=lm(y~.,xydd)
+summary(lmdd)
+```
+```{r}
+mean(xyd$y)
+```
+# now look at the correlation between y, x1-5 yhat and e
+```{r}
+# cbind: combine into a new data.frame
+fmat = cbind(xyd, lmd$fitted,lmd$residuals)
+names(fmat)[c(7,8)]=c("yhat","e")
+cor(fmat)
+```
+# the residuals is uncorrelated with the fitted value is because the residual is from a indepedent distribution (a gaussian for example)
+# the square of y-yhat correlation is the same as the R square in multiple regression
+
+# orthogonalized regression
+```{r}
+lmfy=lm(y~x1+x2+x3+x4+x5, xyd)
+summary(lmfy)
+
+```
+# regress x5 on x1-4 and then replace x5 with the residue of this regression
+```{r}
+# regress x5 on other xs
+lmf5=lm(x5~x1+x2+x3+x4, xyd)
+# get the residuals of x5 on other xs
+e5=lmf5$residuals
+# combine the data.frame with the residuals
+xyde=cbind(xyd[,1:5],e5)
+# regress again 
+lmfe=lm(y~.,xyde)
+summary(lmfe)
+```
+# the coefficients from this regression has the same x1-x4 coefficients compared to last regression
+# the coefficients for e5 is the same as the coefficients for x5 in the last regression
+# this can be explained by the fact that the coefficients for x5 is only determined by the part not explained by x1-x4 altogether, which is the residual/orthogonal portion of x5
+```{r}
+lmf=lm(y~.,xyd)
+shat=summary(lmf)$sigma
+shat/sqrt(sum(e5^2))
+```
+# this number is the standard error for the coefficient of x5
+# R2 from regression of x5 on x1-x4 is 0.2434
+
+# run the regression of y on just x5 and compare with if run regression ofy on x1-5
+```{r}
+lm5=lm(y~x5, xyd)
+summary(lm5)
+lm5$coefficients
+lm_all=lm(y~x1+x2+x3+x4+x5, xyd)
+summary(lm_all)
+lm_all$coefficients
+```
+# the std error for x5 coefficient in multiple regression(7.835) is much higher than that of single regression(0.07744). this is due to the fact that as we add x's the size of residue can go down and since variance of estimated parameters are inversely proportional to the residue size, the variance will increases in multiple regression hence result in higher standard error in predictions, which is in essense a bias variance trade off problem.
