@@ -1,0 +1,404 @@
+---
+title: "Regularized Linear Model and Subset Selection"
+author: "Zijian Du"
+date: "2/22/2018"
+output:
+  pdf_document:
+    keep_tex: yes
+    latex_engine: xelatex
+    number_sections: yes
+    toc: yes
+  html_document:
+    df_print: paged
+    toc: yes
+linkcolor: blue
+header-includes:
+- \usepackage[]{graphicx}
+- \usepackage[]{color}
+- \usepackage{amsmath}
+- \usepackage{relsize}
+- \usepackage{algorithm2e}
+- \usepackage{animate}
+- \newcommand{\sko}{\vspace{.1in}}
+- \newcommand{\skoo}{\vspace{.2in}}
+- \newcommand{\skooo}{\vspace{.3in}}
+- \newcommand{\rd}[1]{\textcolor{red}{#1}}
+- \newcommand{\bl}[1]{\textcolor{blue}{#1}}
+- \newcommand{\tbf}[1]{\textbf{\texttt{#1}}}
+- \newcommand{\ird}[1]{\textit{\textcolor{red}{#1}}}
+fontsize: 10pt
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev = 'pdf')
+knitr::opts_chunk$set(collapse = TRUE)
+```
+
+***
+
+\  
+
+\large
+\bl{Note:}  
+\normalsize
+
+This homework is more like a mini project.  
+
+You should read the linear regression notes carefully and check the 8 R scripts
+from *R script to illustrate all subsets regression is package leaps* to
+*R script to learn about formulas and model.matrix* carefully.
+This a quite a bit of statistics/Machine Learning/R to consume!!!  
+
+Note in particular that it is worth learning the formulas/model matrix stuff in
+the 
+*R script to learn about formulas and model.matrix* script.  
+
+This is a lot of work and a key part of the course!!!
+
+\  
+
+***
+
+<!--##################################################-->
+#  Data with 5 $x$'s
+# uses regsubsets function from package leaps and the lasso to see what variable subsets they select on the 5 x dataset
+
+```{r}
+yx= read.csv("sim-reg-data.csv")
+print(summary(yx))
+library(leaps)
+```
+# now do the variable selection on the 5 x using leaps
+```{r}
+# make the predictor and response matrixs
+x= as.matrix(yx[,-1])
+y=as.matrix(yx[,1])
+# do regular subset selection using exhaustive search
+regsubsets.out <- regsubsets(y~x, data =yx, nbest =1, nvmax=NULL, method ="exhaustive")
+regsubsets.out
+```
+# best model at each variable number, using regsubsets function from leaps packages, it selects
+# x5; x2,x5; x1,x2,x5; x1,x2,x3,x4; x1,x2,x3,x4,x5 as best subsets for 1 to 5 subsets selections.
+```{r}
+summary.out = summary(regsubsets.out)
+summary(as.data.frame(summary.out$outmat))
+```
+# plot of the data using adjusted R2 just to make sure that the model does not overfit just based on R2 value instead of adjusted R2.
+# By using adjusted R2 as metrics, the subset selection result is different from before.
+```{r}
+dev.new(width=5, height=5)
+plot(regsubsets.out, scale="adjr2", main="Adjusted R^2")
+```
+# now do lasso on the same data and plot coefficients-loglambda curve and precent of deviance explained for each lambda
+# the lasso approach will favor x1 and x2 when there is l1 norm penality
+
+```{r}
+# run lasso
+library(glmnet)
+lasso = glmnet(x, y, family="gaussian", standardize = FALSE, alpha =1, lambda =seq(0,6,by=0.01),nlambda=100, intercept = FALSE)
+plot(lasso,xvar="lambda",ylim=c(0,1.4), label= TRUE)
+plot(lasso,xvar="dev",ylim=c(0,1.4), label= TRUE)
+```
+# used car data, Lasso vs. step/all subsets comparision
+Let's have a quick look at the data.
+
+```{r ucdata,include=TRUE,echo=TRUE,cache=TRUE}
+cd = read.csv("usedcars.csv")
+dim(cd)
+names(cd)
+summary(cd)
+sapply(cd,is.factor) #which variables are categorical
+```
+```{r}
+# X_base is the base design matrix
+X_base = cd[,-1]
+X_base_matrix=as.matrix(X_base)
+dim(X_base_matrix)
+```
+# firstly we want to obtain the design matrix for the linear regression
+
+```{r}
+# firstly dummy all the variables, secondly add 3rd order polynomial features for the three numerical attributes and form design matrix
+fm1=as.formula(~.)
+X_dummy=data.frame(model.matrix(fm1, X_base))
+fm2=as.formula(~.+polym(mileage, year,displacement,degree=3, raw = TRUE))
+X_design = data.frame(model.matrix(fm2, X_dummy))
+
+```
+```{r}
+# now we standardize the design matrix
+y=cd$price
+# note y in the fit should be vector, not dataframe
+y_log = log(y)
+X_design_scaled <-scale(X_design)
+X_design_scaled=data.frame(X_design_scaled)
+# default is lasso, data is standardized
+fit=glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]),y_log)
+# see coefficients pah as lambda varies, label=True labels each path with variable number
+plot(fit, label=TRUE,main ="coefficients-l1 norm plot for lasso regression",cex.main=0.8)
+```
+# to get more intuition behind shrinkage, plot the coefficient path with respect to lambda for mileage and year. 
+```{r}
+# can get the coefficients at certain lambda, coefficients equals to 0 hence realizing subset selection using lasso approach
+cmat = coef(fit, s=0.05)[,1]
+print(data.frame(cmat))
+cmat=coef(fit)
+print(class(cmat))
+#print(as.matrix(cmat))
+print(dim(cmat))
+for (i in c(13:14))
+{
+plot(fit$lambda, cmat[i,])
+title(main=paste("coefficient path for ",row.names(cmat)[i]))
+}
+```
+# clear penalization can be seen for mileage and year variables as lambda increases.
+
+```{r}
+# now try to get the predictions using predict, here will use insample fit at lambda =0.05
+for (s in c(0.01, 0.05,0.1, 0.3,0.4))
+{yhat = predict(fit, newx=as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), s=s)
+plot(y_log, yhat, type ='p',col = 'blue', lwd=1,main="y_predict vs y_hat in sample plot")
+}
+```
+# it can be seen that with lambda changing from 0.01 to 0.4 the prediction becomes worse due to underfitting
+
+# now we can use cross validation to pick the right lambda, conduct 10 fold cross validation on the data
+```{r}
+cvfit = cv.glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]),y_log)
+# the lambda with the min cv is indicated as the one standard error lambda where standard error is computed across 10 folds, plot the MSE
+plot(cvfit, main="MSE-model complexity using 10 fold cross validation for lasso",cex.main=0.8)
+```
+# now pick off best lambda
+```{r}
+cat("best lambda is ", cvfit$lambda.min,"\n")
+cat("best log(lambda) is: ", log(cvfit$lambda.min), "\n")
+cat("best lambda 1se is: ", cvfit$lambda.1se, "\n")
+cat("best log(lambda) 1se is: ", log(cvfit$lambda.1se), "\n")
+```
+# make predictions in sample fit at good lambda
+```{r}
+yhat = predict(cvfit, newx = as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), s=cvfit$lambda.min)
+yhat1=predict(cvfit, newx = as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), s=cvfit$lambda.1se)
+pairs(cbind(yhat, yhat1))
+```
+# now we conduct ridge regression and fit on a grid of lambda values
+```{r}
+gsize=100
+grid=0.01^seq(10,-2, length=gsize)
+ridge=glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]),y_log, alpha =0, lambda=grid, standardize =FALSE)# data already standardized
+cat("lambda 50:", ridge$lambda[50],"\n")
+cat("coefficients:\n")
+print(data.frame(coef(ridge)[,50]))
+```
+# now plot the coefficients
+```{r}
+# get the coefficient matrix
+cmat = coef(ridge)
+# drop intercept
+cmat=cmat[2:nrow(cmat),]
+cpar=log(1/grid)
+plot(range(cpar), range(cmat), type ='n', xlab = "log(1/lambda)",ylab="coefficients", cex.lab =1.5,main="coefficients-model complexity plot using ridge regression")
+# plot the coefficients-shrinkage for each variables
+for (i in 1:nrow(cmat))
+  lines(cpar, cmat[i,], col =i+1, type = 'l')
+```
+# now try cross validation for ridge regression
+```{r}
+set.seed(20)
+cv_ridge = cv.glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]),y_log, alpha=0, lambda = grid)
+cmp=log(1/cv_ridge$lambda)
+# now plot the cross validation result
+plot(cv_ridge, main="MSE-shrinkage plot for ridge regression")
+```
+# now obtain the best lambda and coefficients
+```{r}
+print(cv_ridge$lambda.min)
+print(cv_ridge$lambda.1se)
+```
+# now we want to compare lasso, ridge and elastic net on the data set
+```{r}
+# first getfolds function
+getfolds = function(nfold,n,dorand=TRUE) { 
+### set up fold id
+## nfold: number of folds (e.g. 5 or 10)
+## n: sample size
+## dorand: shuffle data
+   fs = floor(n/nfold) # fold size
+   fid = rep(1:nfold,rep(fs,nfold))
+   diff = n-length(fid)
+   if(diff>0) fid=c(1:diff,fid)
+   if(dorand) fid = sample(fid,n)
+   return(fid)
+}
+```
+
+```{r}
+n=length(y_log)
+nfold=10
+set.seed(90)
+fid1=getfolds(nfold, n)
+# now we fit three glmnets
+# lasso
+cv_lasso = cv.glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), y_log, nfolds=10, foldid = fid1, family= "gaussian", standardize =FALSE, alpha =1, intercept = FALSE)
+# ridge
+cv_ridge = cv.glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), y_log, nfolds=10, foldid=fid1, family="gaussian", standardize= FALSE, alpha =0, intercept = FALSE)
+# enet
+cv_enet = cv.glmnet(as.matrix(X_design_scaled[,3:ncol(X_design_scaled)]), y_log, nfolds=10, foldid=fid1, family= "gaussian", standardize = FALSE, alpha =0.5, intercept=FALSE)
+# plot
+par(mfrow=c(2,3))
+plot(cv_lasso$glmnet.fit); plot(cv_ridge$glmnet.fit); plot(cv_enet$glmnet.fit)
+plot(cv_lasso); plot(cv_ridge); plot(cv_enet)
+```
+# now plot cross validated error-lambda for lasso, ridge and elastic net to compare accuracy
+# from the plots we can see the minimum loss for the three approaches are similar while ridge requires a bigger shrinkage to achieve simulir accuracy compared to lasso.
+```{r}
+par(mfrow=c(1,1))
+# cvm: mean cross validated error
+cmvL= cv_lasso$cvm; lmL=cv_lasso$lambda
+cmvR = cv_ridge$cvm; lmR=cv_ridge$lambda
+cmvE = cv_enet$cvm; lmE = cv_enet$lambda
+# layout for the plot first
+plot(range(log(c(lmL, lmR, lmE))), range(sqrt(c(cmvL, cmvR, cmvE))), xlab="log(lambda)", ylab="loss", cex.axis =1.5, cex.lab=1.5)
+# plot lines
+lines(log(lmL),sqrt(cmvL),col='red',type ='b',lwd=2)
+lines(log(lmL),cv_lasso$cvlo, col='red', lty=3, type = 'l'); 
+lines(log(lmL),sqrt(cv_lasso$cvup),col='red',lty=3, type = 'l')
+lines(log(lmR),sqrt(cmvR),col='blue',type ='b',lwd=2)
+lines(log(lmR),cv_ridge$cvlo, col='blue', lty=3, type = 'l'); 
+lines(log(lmR),sqrt(cv_ridge$cvup),col='blue',lty=3, type = 'l')
+lines(log(lmE),sqrt(cmvE),col='black',type ='b',lwd=2)
+lines(log(lmE),cv_enet$cvlo, col='black', lty=3, type = 'l'); 
+lines(log(lmE),sqrt(cv_enet$cvup),col='black',lty=3, type = 'l')
+legend("topleft",legend=c("lasso", "ridge","enet"), col=c("red", "blue","black"),lwd=c(2,2,2),cex=1)
+```
+# now we do forward stepwise using information criteria
+```{r}
+library(MASS)
+n=nrow(cd)
+cat("try extractAIC\n")
+df_BIC = read.csv("car_df.csv")
+# all variables
+#lmtran=lm(y~., data.frame(X_design_scaled[,3:ncol(X_design_scaled)]))
+lmtran=lm(y~., df_BIC)
+bictran=extractAIC(lmtran,k=log(n))
+print(summary(lmtran))
+cat("bic for all variables: ",bictran)
+```
+```{r}
+cat("try stepAIC \n")
+# do forward stepAIC, stopping when adding any variables makes BIC bigger
+nullmod=lm(y~1,df_BIC)
+fullmod=lmtran
+fwd=stepAIC(nullmod,scope=formula(lmtran),direction = "forward", k=log(n), trace =0)
+print(summary(fwd))
+bicfwd=extractAIC(fwd, k=log(n))
+cat("bic for forward model is: ", bicfwd,"\n")
+```
+# do stepAIC while keep summaries of model as you go 
+```{r}
+# keep vars and mse
+ypred = y_log
+keepf = function(mod, maic)
+{
+  n = length(ypred)
+  rval=list()
+  k = length(mod$coef)
+  rval$varname=names(mod$coef)[k]
+  yhat=mod$fitted
+  rval$mse=mean((yhat-ypred)^2)
+  rval$rsq = summary(mod)$r.squared
+  rval$bic = extractAIC(mod, k=log(n))
+  return (rval)
+}
+```
+```{r}
+nstep=40
+fwd = stepAIC(nullmod, scope=formula(lmtran), direction="forward",k=2, trace=0, keep = keepf, steps=nstep)
+nmii = i+4*(1:(nstep))
+vnms = unlist(fwd$keep[nmii])
+msev=unlist(fwd$keep[nmii+1])
+rsq= unlist(fwd$keep[nmii+2])
+bicv= unlist(fwd$keep[nmii+3])
+print(vnms)
+print(rsq)
+print(bicv)
+```
+```{r}
+par(mfrow=c(1,2))
+plot(rsq,xlab="num vars",ylab="R-squared", cex.lab=1.5, cex.axis =1.5, type ="b")
+iibic =seq(from=1, to=(2*nstep)-1, by=2)
+plot(bicv[iibic],bicv[iibic+1], xlab="num param", ylab ="BIC", cex.lab=1.5, cex.axis=1.5, type ="b")
+```
+# now do k fold cross validation with forward stepwise
+```{r}
+library(MASS)
+## function to do cv with stepAIC
+stepcv = function(ddf,yind,xind,fullform,folds,nstep) {
+   ##function to extract sse using stepAIC
+   keepf = function(mod,maic) 
+   {
+      yhat = predict(mod,xpred)
+      return(sum((yhat-ypred)^2))
+   }
+
+   ##null model
+   nullform = as.formula(paste(names(ddf)[yind],"~1"))
+
+   ##loop over folds 
+   nf = length(unique(folds)) #number of folds
+   ssemat = matrix(0,nstep+1,nf)
+   for(i in 1:nf) {
+      cat("in stepcv on fold: ",i,"\n")
+
+      ypred = ddf[(folds==i),yind]
+      xpred = ddf[(folds==i),xind,drop=FALSE]
+
+      nullmod=lm(nullform,ddf[!(folds==i),])
+
+      fwd = stepAIC(nullmod,scope=fullform,direction="forward",
+                k=0,trace=0,keep=keepf,steps=nstep)
+
+      ssemat[,i]=as.double(fwd$keep)
+   }
+   return(ssemat)
+}
+
+## set up fold id
+getfolds = function(nfold,n,dorand=TRUE) {
+   fs = floor(n/nfold) # fold size
+   fid = rep(1:nfold,rep(fs,nfold))
+   diff = n-length(fid)
+   if(diff>0) fid=c(1:diff,fid)
+   if(dorand) fid = sample(fid,n)
+   return(fid)
+}
+```
+# now do cross validation on the data
+
+```{r}
+# construct the dataframe in the fun
+df = read.csv("car_df.csv")
+df
+yind=1
+xind=2:ncol(df)
+set.seed(90)
+folds = getfolds(10, nrow(df))
+nstep=25
+lmtran = lm(log(cd$price)~., data.frame(X_design_scaled[,3:ncol(X_design_scaled)]))
+stcv = stepcv(df, yind, xind, formula(lmtran), folds, nstep)
+rmse = sqrt(apply(stcv, 1, sum)/n)
+```
+```{r}
+# now plot the rmse change
+plot(0:nstep, rmse, xlab = "num var +1", ylab="RMSE", cex.lab=1.5, cex.axis=1.5, type ='b', col ='red', pch =16, main="RMSE change with number of variables using forward stepwise and AIC")
+```
+# now do several runs
+
+# now plot the results, it can be seen that the variance of RMSE is not big, almost overlapping for differnt folds.
+
+# Summary:
+#1. in this project, 3rd order polynomial features and cross terms for numerical data mileage, year and displacement were added in the design matrix, other factors were made dummy variables. 
+# 2. Before any model fit, the data was standardized. Lasso, Ridge and Elastic net models were fitted on the data, coefficients shrinkage vs model complexity were visualized. Cross validation was used to evaluate the fit and the three approaches can achieve similar accuracy using in sample data while ridge regression needs a greater shrinkage in order to obtain low RMSE. 
+# 3. BIC and AIC were used as penality when conducting forward stepwise subset selection. Cross validation was used to evaluate the model accuracy, multiple try shows that RMSE has low variance between folds and as the number of variables increases RMSE decreases. 
